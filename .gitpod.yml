@@ -1,8 +1,8 @@
 ports:
   - port: 8080
     onOpen: open-preview
-checkoutLocation: "go/src/github.com/demo-apps/go-gin-app"
-workspaceLocation: "go/src/github.com/demo-apps/go-gin-app"
+checkoutLocation: "go/src/github.com/takshpanchal/chess"
+workspaceLocation: "go/src/github.com/takshpanchal/chess"
 tasks:
   - init: >
       go build -o app
