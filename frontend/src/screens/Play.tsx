@@ -67,7 +67,7 @@ const PlayPage = () => {
   };
 
   return (
-    <div>
+    <div className="p-10">
       <div className="grid grid-cols-6 min-w-fit">
         <div className="flex justify-center col-span-4 ">
           <ChessBoard

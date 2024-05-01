@@ -27,6 +27,33 @@ const ChessBoard = ({
   const [from, setFrom] = useState<Square | null>(null);
   const [to, setTo] = useState<Square | null>(null);
 
+  const handleMove = (
+    i: number,
+    j: number,
+    piece: { square: Square; type: PieceSymbol; color: Color } | null
+  ) => {
+    console.log(to);
+    console.log(from);
+
+    if (from == null) {
+      if (piece?.square == null) return;
+      setFrom(piece?.square);
+      // light up the possible moves square
+    } else {
+      const to = cols[j] + rows[i];
+      setTo(to as Square);
+      try {
+        onMove(from, to as Square);
+      } catch (error) {
+        // send invalid move UI
+        console.log(error);
+      } finally {
+        setFrom(null);
+        setTo(null);
+      }
+    }
+  };
+
   // build square
   const square = (
     i: number,
@@ -48,19 +75,12 @@ const ChessBoard = ({
             {rows[i]}
           </div>
         )}
-        <div
-          className={className + " z-0"}
-          onClick={
-            piece == null || piece?.color === color ? onClick : undefined
-          }
-        >
-          {piece ? (
+        <div className={className + " z-0"} onClick={onClick}>
+          {piece && (
             <img
               src={`/${piece.type}${piece.color === "w" ? "_w" : ""}.png`}
               className="w-16"
             />
-          ) : (
-            ""
           )}
         </div>
       </div>
@@ -74,25 +94,7 @@ const ChessBoard = ({
           <div key={i} className="flex select-none">
             {row.map((piece, j) => {
               return square(i, j, piece, () => {
-                console.log("click", piece);
-                console.log("from", from);
-
-                if (!from) {
-                  setFrom(piece?.square || null);
-                  // light up the possible moves square
-                } else {
-                  const to = cols[j] + rows[i];
-                  setTo(to as Square);
-                  try {
-                    onMove(from, to as Square);
-                  } catch (error) {
-                    // send invalid move UI
-                    console.log(error);
-                  } finally {
-                    setFrom(null);
-                    setTo(null);
-                  }
-                }
+                handleMove(i, j, piece);
               });
             })}
           </div>
