@@ -35,25 +35,33 @@ const ChessBoard = ({
     onClick: () => void = () => {}
   ) => {
     let className =
-      "flex items-center justify-center w-16 h-16 border border-gray-800 cursor-pointer active:outline-none active:ring active:ring-violet-300 " +
-      (i % 2 === j % 2 ? "bg-gray-300" : "bg-gray-500");
+      "flex items-center justify-center w-20 h-20 cursor-pointer active:outline-none active:ring active:ring-violet-300 " +
+      (i % 2 === j % 2 ? "bg-board-white" : "bg-board-black");
 
     className += from === piece?.square ? " active" : "";
+    const rankColor = i % 2 !== 0 ? "text-board-white" : "text-board-black";
 
     return (
       <div key={j} className="relative">
-        {j == 0 && <div className="absolute z-10 left-1">{rows[i]}</div>}
+        {j == 0 && (
+          <div className={"absolute z-10 left-1 text-lg " + rankColor}>
+            {rows[i]}
+          </div>
+        )}
         <div
           className={className + " z-0"}
           onClick={
             piece == null || piece?.color === color ? onClick : undefined
           }
         >
-          {piece
-            ? piece.color === "w"
-              ? piece.type.toUpperCase()
-              : piece.type
-            : ""}
+          {piece ? (
+            <img
+              src={`/${piece.type}${piece.color === "w" ? "_w" : ""}.png`}
+              className="w-16"
+            />
+          ) : (
+            ""
+          )}
         </div>
       </div>
     );
@@ -92,10 +100,12 @@ const ChessBoard = ({
       })}
 
       <div className="relative flex text-right white -top-6 right-1 text-black-200 ">
-        {cols.split("").map((col) => {
+        {cols.split("").map((col, i) => {
+          const classNames =
+            "text-lg " + (i % 2 == 0 ? "text-board-white" : "text-board-black");
           return (
-            <div className="w-16" key={col}>
-              {col}
+            <div className="w-20" key={col}>
+              <div className={classNames}>{col}</div>
             </div>
           );
         })}
