@@ -11,4 +11,3 @@ func HandleError(err error) {
 	strace := fmt.Sprintf("%+v \n %+v", err.Error(), string(st))
 	log.Output(2, strace)
 }
-
