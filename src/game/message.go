@@ -37,7 +37,7 @@ type MoveData struct {
 
 // Response Structs
 type ResponseTypes interface {
-	InitResponseData
+	InitResponseData | *MoveData
 }
 type Response[T ResponseTypes] struct {
 	Type string `json:"type"`
@@ -54,4 +54,9 @@ func NewResponse[T ResponseTypes](t string, d T) *Response[T] {
 		Type: t,
 		Data: d,
 	}
+}
+
+type Pair[T, U any] struct {
+	First  T
+	Second U
 }

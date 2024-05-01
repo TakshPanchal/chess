@@ -15,6 +15,9 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
+	// logger setup
+	log.SetFlags(log.Llongfile | log.Ltime)
+
 	gm := game.NewGameManager()
 	go gm.Manage()
 

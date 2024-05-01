@@ -10,7 +10,15 @@ import (
 	"github.com/takshpanchal/chess/src/helpers"
 )
 
+type PlayerType = string
+
+const (
+	BlackPlayer PlayerType = "black"
+	WhitePlayer PlayerType = "white"
+)
+
 type Player struct {
+	Type        PlayerType
 	id          uint32
 	Conn        *websocket.Conn
 	game        *Game
@@ -25,6 +33,7 @@ func NewPlayer(conn *websocket.Conn, gm *GameManager) *Player {
 		game:        nil,
 		gameManager: gm,
 		send:        make(chan []byte),
+		Type:        "",
 	}
 }
 
@@ -96,7 +105,7 @@ func (p *Player) handleMove(msg []byte) {
 	}
 	log.Println(moveMsg)
 
-	// p.send <- []byte("Move")
+	p.game.Moves <- Pair[*MoveData, *Player]{First: &moveMsg.Data, Second: p}
 }
 
 func (p *Player) handleGameOver(_ []byte) {
@@ -116,12 +125,9 @@ func (p *Player) WritePump() {
 	}()
 	for {
 		msg, ok := <-p.send
-		// if !ok {
-		// 	// TODO: Do work on send channel close
-		// }
-
-		if msg == nil {
-			log.Println("conn: closing | nil msg found")
+		if !ok {
+			// TODO: Do work on send channel close
+			log.Println("conn: closing | send channel closed")
 			return
 		}
 
