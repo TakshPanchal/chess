@@ -7,6 +7,7 @@ import (
 
 	"github.com/takshpanchal/chess/src/game"
 	"github.com/takshpanchal/chess/src/ws"
+	"github.com/takshpanchal/chess/src/utils"
 )
 
 func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
@@ -14,6 +15,8 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	config := utils.NewConfig()
 
 	// logger setup
 	log.SetFlags(log.Llongfile | log.Ltime)
