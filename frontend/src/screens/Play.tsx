@@ -17,6 +17,8 @@ const PlayPage = () => {
   const [pgn, setPgn] = useState<string>(chess.pgn());
   const [color, setColor] = useState<"black" | "white" | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
+  const [previousMove, setPreviousMove] = useState<{ from: Square; to: Square } | null>(null);
+
 
   useEffect(() => {
     if (!socket) return;
@@ -35,8 +37,10 @@ const PlayPage = () => {
           break;
         }
         case MOVE:
-          chess.move(message.data);
+          const { from, to } = message.data;
+          chess.move({ from, to });
           setPgn(chess.pgn());
+          setPreviousMove({ from, to }); // Update previous move
           console.log("Incoming Move", message);
           break;
         case GAME_OVER:
@@ -57,34 +61,37 @@ const PlayPage = () => {
   };
 
   const onMove = (from: Square, to: Square) => {
-    console.log({ from, to });
-    chess.move({ from: from, to: to });
-
+    chess.move({ from, to });
     setPgn(chess.pgn());
-
+    setPreviousMove({ from, to }); // Update previous move
     socket.send(JSON.stringify({ type: MOVE, data: { from, to } }));
-    console.log({ from, to });
   };
+  
 
   return (
     <div className="p-10">
       <div className="grid grid-cols-6 min-w-fit">
         <div className="flex justify-center col-span-4 ">
-          <ChessBoard
-            pgn={pgn}
-            color={color == "white" ? "w" : "b"}
-            onMove={onMove}
-          />
+        <ChessBoard
+  pgn={pgn}
+  color={color === "white" ? "w" : "b"}
+  onMove={onMove}
+  previousMove={previousMove} // Pass previous move
+/>
+
         </div>
-        <div className="flex justify-center col-span-2 pt-10 bg-slate-950h">
-          {gameStarted && <div>Game is started</div>}
-          <div>
-            <Button onClick={startGame}>Start Game</Button>
-          </div>
+        <div className="flex justify-center col-span-2 pt-10 bg-slate-950">
+           {gameStarted && <div className="text-white">Game is started</div>}
+           <div>
+             <Button onClick={startGame}>Start Game</Button>
+           </div>
         </div>
+
       </div>
     </div>
   );
 };
 
 export default PlayPage;
+
+

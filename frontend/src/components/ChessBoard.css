@@ -1,0 +1,23 @@
+/* ChessBoard.css */
+
+.grid {
+    display: grid;
+}
+
+.piece {
+    width: 90%;
+    height: 90%;
+}
+
+.bg-prv {
+    background-color: #7B61FF !important;
+
+}
+
+/* .bg-gray-200 {
+    background-color: #e2e8f0;
+}
+
+.bg-gray-700 {
+    background-color: #4a5568;
+} */
