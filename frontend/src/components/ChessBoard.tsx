@@ -5,10 +5,12 @@ const ChessBoard = ({
   pgn,
   color,
   onMove,
+  previousMove,
 }: {
   pgn: string;
   color: Color;
   onMove: (from: Square, to: Square) => void;
+  previousMove: { from: Square; to: Square } | null; // Accept previousMove prop
 }) => {
   const chess = new Chess();
   chess.loadPgn(pgn);
@@ -65,7 +67,12 @@ const ChessBoard = ({
       "flex items-center justify-center w-20 h-20 cursor-pointer active:outline-none active:ring active:ring-violet-300 " +
       (i % 2 === j % 2 ? "bg-board-white" : "bg-board-black");
 
-    className += from === piece?.square ? " active" : "";
+    // Highlight the previous move
+  const squareName = cols[j] + rows[i];
+    if (previousMove && (previousMove.from === squareName || previousMove.to === squareName)) {
+      className += " bg-yellow-500"; 
+    }
+
     const rankColor = i % 2 !== 0 ? "text-board-white" : "text-board-black";
 
     return (
