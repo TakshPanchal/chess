@@ -52,19 +52,19 @@ const PlayPage = () => {
     };
   }, [socket]);
 
-  if (!socket) {
-    return <div>Connecting...</div>;
-  }
+  // if (!socket) {
+  //   return <div>Connecting...</div>;
+  // }
 
   const startGame = () => {
-    socket.send(JSON.stringify({ type: INIT }));
+    socket?.send(JSON.stringify({ type: INIT }));
   };
 
   const onMove = (from: Square, to: Square) => {
     chess.move({ from, to });
     setPgn(chess.pgn());
     setPreviousMove({ from, to }); // Update previous move
-    socket.send(JSON.stringify({ type: MOVE, data: { from, to } }));
+    socket?.send(JSON.stringify({ type: MOVE, data: { from, to } }));
   };
   
 
