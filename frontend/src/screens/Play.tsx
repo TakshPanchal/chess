@@ -57,14 +57,26 @@ const PlayPage = () => {
   // }
 
   const startGame = () => {
+    setGameStarted(true);
     socket?.send(JSON.stringify({ type: INIT }));
   };
-
+  const endGame = () => {
+    setGameStarted(false);
+    let newChess = new Chess();
+    setPgn(newChess.pgn());
+    setPreviousMove(null);
+    socket?.send(JSON.stringify({type: GAME_OVER}))
+  }
   const onMove = (from: Square, to: Square) => {
-    chess.move({ from, to });
-    setPgn(chess.pgn());
-    setPreviousMove({ from, to }); // Update previous move
-    socket?.send(JSON.stringify({ type: MOVE, data: { from, to } }));
+    if(gameStarted) {
+      chess.move({ from, to });
+      setPgn(chess.pgn());
+      setPreviousMove({ from, to }); // Update previous move
+      socket?.send(JSON.stringify({ type: MOVE, data: { from, to } }));
+    }
+    else{
+      alert("Please start game first");
+    }
   };
   
 
@@ -80,12 +92,23 @@ const PlayPage = () => {
 />
 
         </div>
-        <div className="flex justify-center col-span-2 pt-10 bg-slate-950">
-           {gameStarted && <div className="text-white">Game is started</div>}
-           <div>
-             <Button onClick={startGame}>Start Game</Button>
-           </div>
-        </div>
+        <div className="flex flex-col items-center col-span-2 pt-10 bg-slate-950">
+  <div className="text-white mb-4">
+    {gameStarted ? (
+      <div>Game is in progress</div>
+    ) : (
+      <div></div>
+    )}
+  </div>
+  <div className="mb-4">
+    {gameStarted ? (
+      <Button onClick={endGame}>End Game</Button>
+    ) : (
+      <Button onClick={startGame}>Start Game</Button>
+    )}
+  </div>
+</div>
+
 
       </div>
     </div>
