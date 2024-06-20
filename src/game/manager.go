@@ -42,11 +42,10 @@ func (gm *GameManager) Manage() {
 						g.WhitePlayer = gm.WaitingPlayer
 					}
 					gm.WaitingPlayer = nil
-					go g.start()
+					g.start()
 				}
 
 			}
-			// case p := <-gm.RemovePlayer:
 		}
 
 	}

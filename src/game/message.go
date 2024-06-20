@@ -1,6 +1,10 @@
 package game
 
-import "time"
+import (
+	"time"
+
+	"github.com/notnil/chess"
+)
 
 // message types
 const (
@@ -33,6 +37,8 @@ type InitData struct {
 type MoveData struct {
 	To   string `json:"to"`
 	From string `json:"from"`
+	Player PlayerType `json:"color"`
+	Outcome chess.Outcome `json:"outcome"`
 }
 
 // Response Structs
