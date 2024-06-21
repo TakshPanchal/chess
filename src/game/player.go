@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"log"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -75,6 +76,7 @@ func (p *Player) handleRequest(reqType string, msg []byte) {
 	case MOVE:
 		p.handleMove(msg)
 	case GAME_OVER:
+
 		p.handleGameOver(msg)
 	default:
 		p.send <- []byte("Invalid Request")
@@ -93,12 +95,13 @@ func (p *Player) handleInit(_ []byte) {
 }
 
 func (p *Player) handleMove(msg []byte) {
+	resp, err := json.Marshal(map[string]string{"type": "game_not_started", "data": "Game Not Started"})
 	if p.game == nil {
-		p.send <- []byte("Game Not Started")
+		p.send <- resp
 		return
 	}
 	moveMsg := &Message[MoveData]{}
-	err := json.Unmarshal(msg, &moveMsg)
+	err = json.Unmarshal(msg, &moveMsg)
 	if err != nil {
 		//TODO: return structured error message
 		p.send <- []byte("Invalid Message Format")
@@ -111,8 +114,30 @@ func (p *Player) handleMove(msg []byte) {
 func (p *Player) handleGameOver(_ []byte) {
 	if p.game != nil {
 		// TODO: Remove the player from the game
-		// p.gameManager.RemovePlayer <- p
-		p.game = nil
+		log.Println("Inside game over function")
+		gameOver, _ := json.Marshal(map[string]string{"type": "over", "data": "Your game is done"})
+		var wg sync.WaitGroup
+
+		// Send game over message to WhitePlayer
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.game.WhitePlayer.send <- gameOver
+		}()
+
+		// Send game over message to BlackPlayer
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.game.BlackPlayer.send <- gameOver
+		}()
+
+		// Wait for both sends to complete
+		wg.Wait()
+
+		// Signal the end of the game
+		p.game.End <- true
+
 	} else {
 		// TODO: What if game is not running
 	}
