@@ -38,7 +38,10 @@ const ChessBoard = ({
     console.log(from);
 
     if (from == null) {
-      if (piece?.square == null) return;
+      if (piece?.square == null || piece?.color != color) {
+        alert("Invalid piece");
+        return;
+      }
       setFrom(piece?.square);
       // light up the possible moves square
     } else {
@@ -48,6 +51,7 @@ const ChessBoard = ({
         onMove(from, to as Square);
       } catch (error) {
         // send invalid move UI
+        alert("Invalid move" );
         console.log(error);
       } finally {
         setFrom(null);
