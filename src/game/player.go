@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/notnil/chess"
 	"github.com/takshpanchal/chess/src/helpers"
 )
 
@@ -30,8 +31,9 @@ type Player struct {
 	Conn        *websocket.Conn
 	game        *Game
 	gameManager *GameManager
-	send        chan []byte
+	Send        chan []byte
 	IsSpectator bool
+	mu          sync.RWMutex // Protects connection state
 }
 
 func NewPlayer(conn *websocket.Conn, gm *GameManager) *Player {
@@ -40,21 +42,33 @@ func NewPlayer(conn *websocket.Conn, gm *GameManager) *Player {
 		Conn:        conn,
 		game:        nil,
 		gameManager: gm,
-		send:        make(chan []byte),
+		Send:        make(chan []byte),
 		Type:        "",
 		IsSpectator: false,
 	}
 }
 
+// IsActive checks if the player's connection is still active
+func (p *Player) IsActive() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Conn != nil && p.Conn.WriteMessage(websocket.PingMessage, nil) == nil
+}
+
 func (p *Player) ReadPump() {
 	defer func() {
+		p.mu.Lock()
 		if p.game != nil {
 			p.gameManager.RemovePlayer <- p
 			if !p.IsSpectator {
 				p.game.End <- true
 			}
 		}
-		p.Conn.Close()
+		if p.Conn != nil {
+			p.Conn.Close()
+			p.Conn = nil
+		}
+		p.mu.Unlock()
 	}()
 
 	p.Conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -79,12 +93,14 @@ func (p *Player) ReadPump() {
 				helpers.HandleError(err)
 				return
 			}
+			log.Printf("Player %d received message type: %s", p.id, req.Type)
 			p.HandleRequest(req.Type, msg)
 		}
 	}
 }
 
 func (p *Player) HandleRequest(reqType string, msg []byte) {
+	log.Printf("Player %d handling request type: %s", p.id, reqType)
 	switch reqType {
 	case INIT:
 		p.handleInit(msg)
@@ -97,7 +113,48 @@ func (p *Player) HandleRequest(reqType string, msg []byte) {
 	default:
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Invalid request type"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
+		}
+	}
+}
+
+func (p *Player) handleInit(_ []byte) {
+	log.Printf("Player %d initializing game", p.id)
+	if p.game == nil {
+		// Send player to game manager to be matched
+		log.Printf("Player %d sending to game manager", p.id)
+		p.gameManager.AddPlayer <- p
+	} else {
+		log.Printf("Player %d already in game", p.id)
+		// If already in a game, send current game state
+		if p.game != nil {
+			// Determine current turn for spectator view
+			var currentTurn string
+			if p.IsSpectator && p.game.ChessGame != nil {
+				if p.game.ChessGame.Position().Turn() == chess.White {
+					currentTurn = "white"
+				} else {
+					currentTurn = "black"
+				}
+			} else {
+				currentTurn = p.Type
+			}
+
+			initResp := NewResponse(INIT, InitResponseData{
+				Time:       p.game.startTime,
+				Color:      currentTurn,
+				GameID:     p.game.id,
+				ViewerURL:  "/play/" + p.game.id + "?spectator=true",
+				IsSpectator: p.IsSpectator,
+			})
+			if respBytes, err := json.Marshal(initResp); err == nil {
+				p.Send <- respBytes
+			}
+		} else {
+			errResp := NewResponse(ERROR, ErrorResponseData{Message: "Already in a game"})
+			if respBytes, err := json.Marshal(errResp); err == nil {
+				p.Send <- respBytes
+			}
 		}
 	}
 }
@@ -108,34 +165,17 @@ func (p *Player) handleJoinGame(msg []byte) {
 	if err != nil {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Invalid join game message format"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
 		}
 		return
 	}
 
+	log.Printf("Player %d joining game %s with isPlayer=%v", p.id, joinMsg.Data.GameID, joinMsg.Data.IsPlayer)
 	p.gameManager.JoinGame <- &JoinGameRequest{
 		GameID:      joinMsg.Data.GameID,
 		Player:      p,
 		IsSpectator: joinMsg.Data.IsSpectator,
-	}
-}
-
-func (p *Player) handleInit(_ []byte) {
-	if p.game == nil {
-		p.gameManager.AddPlayer <- p
-		// Send waiting status to client
-		initResp := NewResponse(INIT, InitResponseData{
-			Time:  time.Now(),
-			Color: "",
-		})
-		if respBytes, err := json.Marshal(initResp); err == nil {
-			p.send <- respBytes
-		}
-	} else {
-		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Already in a game"})
-		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
-		}
+		IsPlayer:    joinMsg.Data.IsPlayer,
 	}
 }
 
@@ -143,7 +183,7 @@ func (p *Player) handleMove(msg []byte) {
 	if p.game == nil {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Game not started"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
 		}
 		return
 	}
@@ -151,7 +191,7 @@ func (p *Player) handleMove(msg []byte) {
 	if p.IsSpectator {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Spectators cannot make moves"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
 		}
 		return
 	}
@@ -161,17 +201,18 @@ func (p *Player) handleMove(msg []byte) {
 	if err != nil {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Invalid move format"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
 		}
 		return
 	}
 
+	log.Printf("Player %d making move: %v", p.id, moveMsg.Data)
 	p.game.Moves <- Pair[*MoveData, *Player]{First: &moveMsg.Data, Second: p}
 }
 
 func (p *Player) handleGameOver(_ []byte) {
 	if p.game != nil {
-		log.Println("Inside game over function")
+		log.Printf("Game over for player %d", p.id)
 		gameOver := NewResponse(GAME_OVER, ErrorResponseData{Message: "Game has ended"})
 		gameOverBytes, _ := json.Marshal(gameOver)
 
@@ -181,7 +222,7 @@ func (p *Player) handleGameOver(_ []byte) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				p.game.WhitePlayer.send <- gameOverBytes
+				p.game.WhitePlayer.Send <- gameOverBytes
 			}()
 		}
 
@@ -189,7 +230,7 @@ func (p *Player) handleGameOver(_ []byte) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				p.game.BlackPlayer.send <- gameOverBytes
+				p.game.BlackPlayer.Send <- gameOverBytes
 			}()
 		}
 
@@ -197,7 +238,7 @@ func (p *Player) handleGameOver(_ []byte) {
 			wg.Add(1)
 			go func(s *Player) {
 				defer wg.Done()
-				s.send <- gameOverBytes
+				s.Send <- gameOverBytes
 			}(spectator)
 		}
 
@@ -208,7 +249,7 @@ func (p *Player) handleGameOver(_ []byte) {
 	} else {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "No active game to end"})
 		if respBytes, err := json.Marshal(errResp); err == nil {
-			p.send <- respBytes
+			p.Send <- respBytes
 		}
 	}
 }
@@ -217,18 +258,34 @@ func (p *Player) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		p.Conn.Close()
+		p.mu.Lock()
+		if p.Conn != nil {
+			p.Conn.Close()
+			p.Conn = nil
+		}
+		p.mu.Unlock()
 	}()
 
 	for {
 		select {
-		case msg, ok := <-p.send:
+		case msg, ok := <-p.Send:
 			if !ok {
-				p.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				p.mu.Lock()
+				if p.Conn != nil {
+					p.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				}
+				p.mu.Unlock()
 				return
 			}
 
+			log.Printf("Player %d sending message: %s", p.id, string(msg))
+			p.mu.RLock()
+			if p.Conn == nil {
+				p.mu.RUnlock()
+				return
+			}
 			w, err := p.Conn.NextWriter(websocket.TextMessage)
+			p.mu.RUnlock()
 			if err != nil {
 				helpers.HandleError(err)
 				return
@@ -240,9 +297,12 @@ func (p *Player) WritePump() {
 				return
 			}
 		case <-ticker.C:
-			if err := p.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			p.mu.RLock()
+			if p.Conn != nil && p.Conn.WriteMessage(websocket.PingMessage, nil) != nil {
+				p.mu.RUnlock()
 				return
 			}
+			p.mu.RUnlock()
 		}
 	}
 }

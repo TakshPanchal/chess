@@ -2,8 +2,6 @@ package game
 
 import (
 	"time"
-
-	"github.com/notnil/chess"
 )
 
 // message types
@@ -22,7 +20,8 @@ const (
 
 // Request Structs
 type Request struct {
-	Type string `json:"type"`
+	Type string          `json:"type"`
+	Data map[string]any `json:"data"`
 }
 
 type Message[T InitData | MoveData | JoinGameData] struct {
@@ -31,19 +30,21 @@ type Message[T InitData | MoveData | JoinGameData] struct {
 }
 
 type InitData struct {
+	// Empty struct as we don't need any data for init request
 }
 
 type MoveData struct {
-	To      string        `json:"to"`
-	From    string        `json:"from"`
-	Player  PlayerType    `json:"color"`     // The color of the player making the move
-	Outcome chess.Outcome `json:"outcome"`
-	Turn    string        `json:"turn"`      // Next player's turn after this move (white/black)
+	To      string     `json:"to"`
+	From    string     `json:"from"`
+	Player  PlayerType `json:"color"`     // The color of the player making the move
+	Outcome string     `json:"outcome"`   // Game outcome after this move
+	Turn    string     `json:"turn"`      // Next player's turn after this move (white/black)
 }
 
 type JoinGameData struct {
 	GameID      string `json:"gameId"`
 	IsSpectator bool   `json:"isSpectator"`
+	IsPlayer    bool   `json:"isPlayer"`
 }
 
 // Response Structs
@@ -57,16 +58,17 @@ type Response[T ResponseTypes] struct {
 }
 
 type InitResponseData struct {
-	Time      time.Time `json:"time"`
-	Color     string    `json:"color"`    // Player's assigned color
-	GameID    string    `json:"gameId"`   // For sharing
-	ViewerURL string    `json:"viewerUrl"`
+	Time       time.Time `json:"time"`
+	Color      string    `json:"color"`      // Player's assigned color (white/black) or current turn for spectators
+	GameID     string    `json:"gameId"`     // For sharing
+	ViewerURL  string    `json:"viewerUrl"`  // URL for spectators
+	IsSpectator bool     `json:"isSpectator"` // Whether the client is a spectator
 }
 
 type JoinGameResponseData struct {
 	Success     bool      `json:"success"`
 	GameID      string    `json:"gameId"`
-	PlayerType  string    `json:"playerType"` // "white", "black", or "spectator"
+	PlayerType  string    `json:"playerType"` // white/black/spectator
 	GameState   string    `json:"gameState"`  // FEN notation of current board
 	StartTime   time.Time `json:"startTime"`
 	IsSpectator bool      `json:"isSpectator"`

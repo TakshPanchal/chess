@@ -13,13 +13,29 @@ func handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "ok")
 }
 
-func main() {
+// CORS middleware
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func main() {
 	// logger setup
 	log.SetFlags(log.Llongfile | log.Ltime)
 
 	gm := game.NewGameManager()
-	go gm.Manage()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", handleHealthCheck)
@@ -27,12 +43,15 @@ func main() {
 		ws.HandleWS(w, r, gm)
 	})
 
+	// Apply CORS middleware
+	handler := corsMiddleware(mux)
+
 	srv := &http.Server{
-		Handler: mux,
-		Addr:    ":8080",
+		Handler: handler,
+		Addr:    ":8080",  // Use port 8080
 	}
 
-	log.Println("Starting the server on port 8080")
+	log.Printf("Starting the server on port 8080")
 	err := srv.ListenAndServe()
 	if err != nil {
 		log.Panicf("Error: %v", err)

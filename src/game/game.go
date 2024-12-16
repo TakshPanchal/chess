@@ -35,7 +35,7 @@ func generateShortID() string {
 }
 
 func NewGame() *Game {
-	return &Game{
+	g := &Game{
 		id:          generateShortID(),
 		startTime:   time.Now(),
 		BlackPlayer: nil,
@@ -45,92 +45,138 @@ func NewGame() *Game {
 		Moves:       make(chan Pair[*MoveData, *Player]),
 		End:         make(chan bool),
 	}
+	go g.gameLoop()
+	return g
 }
 
 func (g *Game) AddSpectator(p *Player) {
 	p.game = g
 	p.Type = "spectator"
+	p.IsSpectator = true
 	g.Spectators = append(g.Spectators, p)
-	
+
+	// Send initial game state to spectator
+	viewerURL := ""
+	if g.id != "" {
+		viewerURL = "/play/" + g.id + "?spectator=true"
+	}
+
+	// Determine current turn for spectator view
+	var currentTurn string
+	if g.ChessGame != nil {
+		if g.ChessGame.Position().Turn() == chess.White {
+			currentTurn = "white"
+		} else {
+			currentTurn = "black"
+		}
+	}
+
 	sendInitResponse(p, NewResponse(INIT, InitResponseData{
-		Time:      g.startTime,
-		Color:     "spectator",
-		GameID:    g.id,
-		ViewerURL: "",
+		Time:       g.startTime,
+		Color:      currentTurn, // Send current turn instead of "spectator"
+		GameID:     g.id,
+		ViewerURL:  viewerURL,
+		IsSpectator: true, // Add explicit spectator flag
 	}))
+
+	log.Printf("Added spectator to game %s", g.id)
 }
 
 func sendInitResponse(p *Player, resp *Response[InitResponseData]) {
 	respStruct, err := json.Marshal(resp)
 	if err != nil {
 		helpers.HandleError(err)
+		return
 	}
-	p.send <- respStruct
+	p.Send <- respStruct
+	log.Printf("Sent init response to player: %+v", resp.Data)
 }
 
 func (g *Game) start() {
+	log.Printf("Starting game %s", g.id)
+
+	if g.WhitePlayer == nil || g.BlackPlayer == nil {
+		log.Printf("Cannot start game %s: missing players", g.id)
+		return
+	}
+
 	g.WhitePlayer.game = g
 	g.BlackPlayer.game = g
 	g.WhitePlayer.Type = WhitePlayer
 	g.BlackPlayer.Type = BlackPlayer
-	
-	sendInitResponse(g.WhitePlayer, NewResponse(INIT, InitResponseData{
-		Time:      g.startTime,
-		Color:     g.WhitePlayer.Type,
-		GameID:    g.id,
-		ViewerURL: "",
-	}))
-	sendInitResponse(g.BlackPlayer, NewResponse(INIT, InitResponseData{
-		Time:      g.startTime,
-		Color:     g.BlackPlayer.Type,
-		GameID:    g.id,
-		ViewerURL: "",
-	}))
 
-	log.Printf("Game %s is started.", g.id)
-	go g.gameLoop()
+	// Send updated init responses to both players to confirm game start
+	viewerURL := "/play/" + g.id + "?spectator=true"
+
+	// White player init
+	whiteInit := NewResponse(INIT, InitResponseData{
+		Time:       g.startTime,
+		Color:      WhitePlayer,
+		GameID:     g.id,
+		ViewerURL:  viewerURL,
+		IsSpectator: false,
+	})
+	if respBytes, err := json.Marshal(whiteInit); err == nil {
+		g.WhitePlayer.Send <- respBytes
+	}
+
+	// Black player init
+	blackInit := NewResponse(INIT, InitResponseData{
+		Time:       g.startTime,
+		Color:      BlackPlayer,
+		GameID:     g.id,
+		ViewerURL:  viewerURL,
+		IsSpectator: false,
+	})
+	if respBytes, err := json.Marshal(blackInit); err == nil {
+		g.BlackPlayer.Send <- respBytes
+	}
+
+	log.Printf("Game %s started. White: %d, Black: %d", g.id, g.WhitePlayer.id, g.BlackPlayer.id)
 }
 
 func (g *Game) broadcastToSpectators(msg []byte) {
 	for _, spectator := range g.Spectators {
-		spectator.send <- msg
+		spectator.Send <- msg
 	}
 }
 
 func (g *Game) gameLoop() {
+	log.Printf("Game loop started for game %s", g.id)
 	for {
 		select {
 		case p := <-g.Moves:
 			g.makeMove(p)
 		case <-g.End:
 			{
-				log.Println("Server disconnected")
-				g.WhitePlayer.Conn.Close()
-				g.BlackPlayer.Conn.Close()
+				log.Printf("Game %s ended", g.id)
+				if g.WhitePlayer != nil {
+					g.WhitePlayer.Conn.Close()
+				}
+				if g.BlackPlayer != nil {
+					g.BlackPlayer.Conn.Close()
+				}
 				for _, spectator := range g.Spectators {
 					spectator.Conn.Close()
 				}
+				return
 			}
 		}
 	}
 }
 
-func (g *Game) isCorrectTurn(player *Player) bool {
-	currentTurn := g.ChessGame.Position().Turn()
-	return (currentTurn == chess.White && player.Type == WhitePlayer) ||
-		(currentTurn == chess.Black && player.Type == BlackPlayer)
-}
-
 func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 	move, player := p.First, p.Second
-	log.Printf("Received move from %v player: %v to %v", player.Type, move.From, move.To)
+	log.Printf("Game %s: Move attempt from %s to %s by %s", g.id, move.From, move.To, player.Type)
 
-	// Validate it's the correct player's turn
-	if !g.isCorrectTurn(player) {
+	// Validate player's turn
+	currentTurn := g.ChessGame.Position().Turn()
+	isWhiteTurn := currentTurn == chess.White
+	if (isWhiteTurn && player.Type != WhitePlayer) || (!isWhiteTurn && player.Type != BlackPlayer) {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Not your turn"})
 		respBytes, _ := json.Marshal(errResp)
-		player.send <- respBytes
-		log.Printf("Wrong turn for %v player", player.Type)
+		player.Send <- respBytes
+		log.Printf("Game %s: Wrong turn for %s player", g.id, player.Type)
 		return
 	}
 
@@ -139,12 +185,12 @@ func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 	if err != nil {
 		errResp := NewResponse(ERROR, ErrorResponseData{Message: "Invalid move"})
 		respBytes, _ := json.Marshal(errResp)
-		player.send <- respBytes
-		log.Printf("Invalid move from %v player: %v", player.Type, err)
+		player.Send <- respBytes
+		log.Printf("Game %s: Invalid move from %s player: %v", g.id, player.Type, err)
 		return
 	}
 
-	// Set move outcome and next turn
+	// Set move outcome
 	outcome := g.ChessGame.Outcome()
 	switch outcome {
 	case chess.NoOutcome:
@@ -157,13 +203,6 @@ func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 		move.Outcome = "draw"
 	}
 
-	// Set the next turn
-	nextTurn := "white"
-	if g.ChessGame.Position().Turn() == chess.Black {
-		nextTurn = "black"
-	}
-	move.Turn = nextTurn
-
 	// Create move response
 	moveResp := NewResponse(MOVE, move)
 	msg, err := json.Marshal(moveResp)
@@ -173,17 +212,17 @@ func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 	}
 
 	// Send move to both players and spectators
-	g.WhitePlayer.send <- msg
-	g.BlackPlayer.send <- msg
+	g.WhitePlayer.Send <- msg
+	g.BlackPlayer.Send <- msg
 	g.broadcastToSpectators(msg)
 
 	if move.Outcome != "*" {
-		log.Printf("Game over. Outcome: %v", move.Outcome)
+		log.Printf("Game %s over. Outcome: %v", g.id, move.Outcome)
 		g.End <- true
 	}
-	
-	log.Printf("Move processed: from %s to %s, outcome: %s, next turn: %s", 
-		move.From, move.To, move.Outcome, nextTurn)
+
+	log.Printf("Game %s: Move processed from %s to %s, outcome: %s",
+		g.id, move.From, move.To, move.Outcome)
 }
 
 func (g *Game) GetID() string {
