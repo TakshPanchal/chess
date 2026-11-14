@@ -6,25 +6,24 @@ const WS_URL = import.meta.env.VITE_WS_HOST
 
 export const useSocket = () => {
   const [socket, setSocket] = useState<WebSocket | null>(null);
-  const [connection, setConnection] = useState<"connecting" | "connected" | "disconnected">("connecting");
-  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
-    setConnection("connecting");
+
     ws.onopen = () => {
+      console.log("Connected to server");
       setSocket(ws);
-      setConnection("connected");
     };
+
     ws.onclose = () => {
+      console.log("Disconnected from server");
       setSocket(null);
-      setConnection("disconnected");
     };
+
     return () => {
-      ws.onclose = null;
       ws.close();
     };
-  }, [attempt]);
+  }, []);
 
-  return { socket, connection, reconnect: () => setAttempt((value) => value + 1) };
+  return socket;
 };
