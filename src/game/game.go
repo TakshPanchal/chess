@@ -3,6 +3,7 @@ package game
 import (
 	"encoding/json"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,7 @@ type Game struct {
 	ChessGame   *chess.Game
 	Moves       chan Pair[*MoveData, *Player]
 	End         chan bool
+	endOnce     sync.Once
 }
 
 func NewGame() *Game {
@@ -60,6 +62,23 @@ func (g *Game) start() {
 	go g.gameLoop()
 }
 
+func (g *Game) end() {
+	g.finish(true)
+}
+
+func (g *Game) finish(notify bool) {
+	g.endOnce.Do(func() {
+		close(g.End)
+		if notify {
+			msg := []byte(`{"type":"over","data":"Your game is done"}`)
+			g.WhitePlayer.trySendMessage(msg)
+			g.BlackPlayer.trySendMessage(msg)
+		}
+		g.WhitePlayer.closeAfterWrites()
+		g.BlackPlayer.closeAfterWrites()
+	})
+}
+
 func (g *Game) gameLoop() {
 
 	// start the game
@@ -68,11 +87,7 @@ func (g *Game) gameLoop() {
 		case p := <-g.Moves:
 			g.makeMove(p)
 		case <-g.End:
-			{
-				log.Println("Server disconnected")
-				g.WhitePlayer.Conn.Close()
-				g.BlackPlayer.Conn.Close()
-			}
+			return
 		}
 	}
 }
@@ -87,11 +102,16 @@ func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 		player.send <- errResp
 		return
 	}
-	err := g.ChessGame.MoveStr(move.From + move.To)
+	moveText := move.From + move.To
+	err := g.ChessGame.MoveStr(moveText)
+	if err != nil {
+		err = g.ChessGame.MoveStr(moveText + "q")
+	}
 
 	if err != nil {
 		player.send <- errResp
 		helpers.HandleError(err)
+		return
 	}
 
 	outcome := g.ChessGame.Outcome()
@@ -120,7 +140,7 @@ func (g *Game) makeMove(p Pair[*MoveData, *Player]) {
 		g.WhitePlayer.send <- msg
 		g.BlackPlayer.send <- msg
 		log.Printf("Game over. Outcome: %v", move.Outcome)
-		g.End <- true
+		g.finish(false)
 	}
 	log.Printf("Outcome is %v", move)
 	//TODO: check for game over

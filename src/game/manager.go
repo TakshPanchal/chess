@@ -22,32 +22,34 @@ func NewGameManager() *GameManager {
 	}
 }
 
-// func (gm *GameManager) AddPlayer(p *Player) error {}
 func (gm *GameManager) Manage() {
-
 	for {
-
 		select {
 		case p := <-gm.AddPlayer:
-			{
-				if gm.WaitingPlayer == nil {
-					gm.WaitingPlayer = p
-				} else {
-					g := NewGame()
-					if randBool() {
-						g.BlackPlayer = gm.WaitingPlayer
-						g.WhitePlayer = p
-					} else {
-						g.BlackPlayer = p
-						g.WhitePlayer = gm.WaitingPlayer
-					}
-					gm.WaitingPlayer = nil
-					g.start()
-				}
+			if p == nil || p.isClosed() || p == gm.WaitingPlayer {
+				continue
+			}
 
+			if gm.WaitingPlayer == nil || gm.WaitingPlayer.isClosed() {
+				gm.WaitingPlayer = p
+				continue
+			}
+
+			g := NewGame()
+			if randBool() {
+				g.BlackPlayer = gm.WaitingPlayer
+				g.WhitePlayer = p
+			} else {
+				g.BlackPlayer = p
+				g.WhitePlayer = gm.WaitingPlayer
+			}
+			gm.WaitingPlayer = nil
+			g.start()
+		case p := <-gm.RemovePlayer:
+			if gm.WaitingPlayer == p {
+				gm.WaitingPlayer = nil
 			}
 		}
-
 	}
 }
 

@@ -3,8 +3,8 @@ package game
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -16,6 +16,7 @@ type PlayerType = string
 const (
 	BlackPlayer PlayerType = "black"
 	WhitePlayer PlayerType = "white"
+	cancelRequest PlayerType = "cancel"
 )
 
 type Player struct {
@@ -25,6 +26,13 @@ type Player struct {
 	game        *Game
 	gameManager *GameManager
 	send        chan []byte
+	done        chan struct{}
+	flush       chan struct{}
+
+	mu        sync.RWMutex
+	closed    bool
+	stopOnce  sync.Once
+	flushOnce sync.Once
 }
 
 func NewPlayer(conn *websocket.Conn, gm *GameManager) *Player {
@@ -33,39 +41,101 @@ func NewPlayer(conn *websocket.Conn, gm *GameManager) *Player {
 		Conn:        conn,
 		game:        nil,
 		gameManager: gm,
-		send:        make(chan []byte),
+		send:        make(chan []byte, 16),
+		done:        make(chan struct{}),
+		flush:       make(chan struct{}),
 		Type:        "",
 	}
+}
+
+func (p *Player) isClosed() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.closed
+}
+
+func (p *Player) sendMessage(message []byte) bool {
+	p.mu.RLock()
+	closed := p.closed
+	done := p.done
+	send := p.send
+	p.mu.RUnlock()
+	if closed {
+		return false
+	}
+
+	select {
+	case send <- message:
+		return true
+	case <-done:
+		return false
+	}
+}
+
+func (p *Player) trySendMessage(message []byte) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if p.closed {
+		return
+	}
+	select {
+	case p.send <- message:
+	default:
+	}
+}
+
+func (p *Player) close() {
+	p.stopOnce.Do(func() {
+		p.mu.Lock()
+		p.closed = true
+		p.mu.Unlock()
+		close(p.done)
+		if p.Conn != nil {
+			p.Conn.Close()
+		}
+	})
+}
+
+func (p *Player) closeAfterWrites() {
+	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
+	p.closed = true
+	p.mu.Unlock()
+	p.flushOnce.Do(func() {
+		close(p.flush)
+	})
 }
 
 // ReadPump reads from the WS connection and pump to the game
 func (p *Player) ReadPump() {
 	defer func() {
+		p.close()
 		if p.game != nil {
-			// TODO: Close the game
+			p.game.end()
+		} else if p.gameManager != nil {
+			p.gameManager.RemovePlayer <- p
 		}
-		p.Conn.Close()
 	}()
-	// p.Conn.SetReadDeadline()
-	// p.Conn.SetPongHandler()
 	for {
 		_, reader, err := p.Conn.NextReader()
 		if err != nil {
 			helpers.HandleError(err)
 			return
 		}
-		if msg, err := io.ReadAll(reader); err != nil {
+		msg, err := io.ReadAll(reader)
+		if err != nil {
 			helpers.HandleError(err)
 			return
-		} else {
-			req := &Request{}
-			err = json.Unmarshal(msg, req)
-			if err != nil {
-				helpers.HandleError(err)
-				return
-			}
-			p.handleRequest(req.Type, msg)
 		}
+		req := &Request{}
+		if err := json.Unmarshal(msg, req); err != nil {
+			helpers.HandleError(err)
+			return
+		}
+		p.handleRequest(req.Type, msg)
 	}
 }
 
@@ -76,97 +146,93 @@ func (p *Player) handleRequest(reqType string, msg []byte) {
 	case MOVE:
 		p.handleMove(msg)
 	case GAME_OVER:
-
 		p.handleGameOver(msg)
+	case cancelRequest:
+		p.handleCancel()
 	default:
-		p.send <- []byte("Invalid Request")
+		p.sendMessage([]byte("Invalid Request"))
 	}
 }
 
 func (p *Player) handleInit(_ []byte) {
-	// Execute the game init
-	if p.game == nil {
+	if p.game == nil && p.gameManager != nil && !p.isClosed() {
 		p.gameManager.AddPlayer <- p
-		// TODO: send reply if neccessary to the client
-	} else {
-		// FIXME: What if game is already running
 	}
-	// p.send <- []byte("Init")
+}
+
+func (p *Player) handleCancel() {
+	if p.game == nil && p.gameManager != nil {
+		p.gameManager.RemovePlayer <- p
+	}
 }
 
 func (p *Player) handleMove(msg []byte) {
-	resp, err := json.Marshal(map[string]string{"type": "game_not_started", "data": "Game Not Started"})
+	resp, _ := json.Marshal(map[string]string{"type": "game_not_started", "data": "Game Not Started"})
 	if p.game == nil {
-		p.send <- resp
+		p.sendMessage(resp)
 		return
 	}
 	moveMsg := &Message[MoveData]{}
-	err = json.Unmarshal(msg, &moveMsg)
-	if err != nil {
-		//TODO: return structured error message
-		p.send <- []byte("Invalid Message Format")
+	if err := json.Unmarshal(msg, &moveMsg); err != nil {
+		p.sendMessage([]byte("Invalid Message Format"))
+		return
 	}
-	log.Println(moveMsg)
 
-	p.game.Moves <- Pair[*MoveData, *Player]{First: &moveMsg.Data, Second: p}
+	select {
+	case p.game.Moves <- Pair[*MoveData, *Player]{First: &moveMsg.Data, Second: p}:
+	case <-p.game.End:
+	}
 }
 
 func (p *Player) handleGameOver(_ []byte) {
 	if p.game != nil {
-		// TODO: Remove the player from the game
-		log.Println("Inside game over function")
-		gameOver, _ := json.Marshal(map[string]string{"type": "over", "data": "Your game is done"})
-		var wg sync.WaitGroup
-
-		// Send game over message to WhitePlayer
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			p.game.WhitePlayer.send <- gameOver
-		}()
-
-		// Send game over message to BlackPlayer
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			p.game.BlackPlayer.send <- gameOver
-		}()
-
-		// Wait for both sends to complete
-		wg.Wait()
-
-		// Signal the end of the game
-		p.game.End <- true
-
-	} else {
-		// TODO: What if game is not running
+		p.game.end()
 	}
 }
 
 // WritePump write bytes to the connection and send channel
 func (p *Player) WritePump() {
-	defer func() {
-		p.Conn.Close()
-	}()
+	defer p.close()
 	for {
-		msg, ok := <-p.send
-		if !ok {
-			// TODO: Do work on send channel close
-			log.Println("conn: closing | send channel closed")
-			return
-		}
-
-		log.Printf("conn: working: %v", ok)
-		log.Println(string(msg))
-		w, err := p.Conn.NextWriter(websocket.TextMessage)
-		if err != nil {
-			helpers.HandleError(err)
-			return
-		}
-		w.Write(msg)
-		if err = w.Close(); err != nil {
-			helpers.HandleError(err)
+		select {
+		case msg := <-p.send:
+			if !p.writeMessage(msg) {
+				return
+			}
+		case <-p.flush:
+			for {
+				select {
+				case msg := <-p.send:
+					if !p.writeMessage(msg) {
+						return
+					}
+				default:
+					return
+				}
+			}
+		case <-p.done:
 			return
 		}
 	}
+}
+
+func (p *Player) writeMessage(msg []byte) bool {
+	if err := p.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		helpers.HandleError(err)
+		return false
+	}
+	w, err := p.Conn.NextWriter(websocket.TextMessage)
+	if err != nil {
+		helpers.HandleError(err)
+		return false
+	}
+	if _, err = w.Write(msg); err != nil {
+		helpers.HandleError(err)
+		return false
+	}
+	if err = w.Close(); err != nil {
+		helpers.HandleError(err)
+		return false
+	}
+	return true
 }
