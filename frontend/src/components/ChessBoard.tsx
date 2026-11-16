@@ -1,129 +1,173 @@
-import { Chess, Color, PieceSymbol, Square } from "chess.js";
-import { useState } from "react";
+import { Chess, PieceSymbol, Square } from "chess.js";
+import { useEffect, useState } from "react";
+import "./ChessBoard.css";
+
+type BoardColor = "w" | "b";
+
+type ChessBoardProps = {
+  chess: Chess;
+  color: BoardColor;
+  interactive: boolean;
+  onMove: (from: Square, to: Square) => void;
+  previousMove: { from: Square; to: Square } | null;
+};
+
+const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"] as const;
+const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"] as const;
+
+const PIECE_NAMES: Record<PieceSymbol, string> = {
+  p: "pawn",
+  n: "knight",
+  b: "bishop",
+  r: "rook",
+  q: "queen",
+  k: "king",
+};
+
+const COLOR_NAMES: Record<BoardColor, string> = {
+  w: "white",
+  b: "black",
+};
 
 const ChessBoard = ({
-  pgn,
+  chess,
   color,
+  interactive,
   onMove,
   previousMove,
-}: {
-  pgn: string;
-  color: Color;
-  onMove: (from: Square, to: Square) => void;
-  previousMove: { from: Square; to: Square } | null; // Accept previousMove prop
-}) => {
-  const chess = new Chess();
-  chess.loadPgn(pgn);
-  let board = chess.board();
-  let cols = "abcdefgh";
-  let rows = "87654321";
+}: ChessBoardProps) => {
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
+  const position = chess.fen();
+  const files = color === "w" ? FILES : [...FILES].reverse();
+  const ranks = color === "w" ? RANKS : [...RANKS].reverse();
+  const legalDestinations = new Set(
+    selectedSquare
+      ? chess
+          .moves({ square: selectedSquare, verbose: true })
+          .map((move) => move.to)
+      : []
+  );
+  const checkedKing = chess.inCheck()
+    ? chess.board().flat().find((piece) => piece?.type === "k" && piece.color === chess.turn())?.square
+    : undefined;
 
-  if (color === "b") {
-    cols = cols.split("").reverse().join("");
-    rows = rows.split("").reverse().join("");
+  useEffect(() => {
+    setSelectedSquare(null);
+  }, [interactive, position]);
 
-    board = board.map((row) => row.reverse());
-    board = board.reverse();
-  }
-
-  const [from, setFrom] = useState<Square | null>(null);
-  const [to, setTo] = useState<Square | null>(null);
-
-  const handleMove = (
-    i: number,
-    j: number,
-    piece: { square: Square; type: PieceSymbol; color: Color } | null
-  ) => {
-    console.log(to);
-    console.log(from);
-
-    if (from == null) {
-      if (piece?.square == null || piece?.color != color) {
-        alert("Invalid piece");
-        return;
-      }
-      setFrom(piece?.square);
-      // light up the possible moves square
-    } else {
-      const to = cols[j] + rows[i];
-      setTo(to as Square);
-      try {
-        onMove(from, to as Square);
-      } catch (error) {
-        // send invalid move UI
-        alert("Invalid move" );
-        console.log(error);
-      } finally {
-        setFrom(null);
-        setTo(null);
-      }
-    }
-  };
-
-  // build square
-  const square = (
-    i: number,
-    j: number,
-    piece: { square: Square; type: PieceSymbol; color: Color } | null,
-    onClick: () => void = () => {}
-  ) => {
-    let className =
-      "flex items-center justify-center w-20 h-20 cursor-pointer active:outline-none active:ring active:ring-violet-300 " +
-      (i % 2 === j % 2 ? "bg-board-white" : "bg-board-black");
-
-    // Highlight the previous move
-  const squareName = cols[j] + rows[i];
-    if (previousMove && (previousMove.from === squareName || previousMove.to === squareName)) {
-      className += " bg-yellow-500"; 
+  const handleSquareClick = (square: Square) => {
+    if (!interactive) {
+      return;
     }
 
-    const rankColor = i % 2 !== 0 ? "text-board-white" : "text-board-black";
+    const piece = chess.get(square);
 
-    return (
-      <div key={j} className="relative">
-        {j == 0 && (
-          <div className={"absolute z-10 left-1 text-lg " + rankColor}>
-            {rows[i]}
-          </div>
-        )}
-        <div className={className + " z-0"} onClick={onClick}>
-          {piece && (
-            <img
-              src={`/${piece.type}${piece.color === "w" ? "_w" : ""}.png`}
-              className="w-16"
-            />
-          )}
-        </div>
-      </div>
-    );
+    if (selectedSquare === null) {
+      if (piece?.color === color) {
+        setSelectedSquare(square);
+      }
+      return;
+    }
+
+    if (selectedSquare === square) {
+      setSelectedSquare(null);
+      return;
+    }
+
+    if (legalDestinations.has(square)) {
+      setSelectedSquare(null);
+      onMove(selectedSquare, square);
+      return;
+    }
+
+    setSelectedSquare(piece?.color === color ? square : null);
   };
 
   return (
-    <div className="">
-      {board.map((row, i) => {
-        return (
-          <div key={i} className="flex select-none">
-            {row.map((piece, j) => {
-              return square(i, j, piece, () => {
-                handleMove(i, j, piece);
-              });
-            })}
-          </div>
-        );
-      })}
+    <section
+      className="chess-board"
+      aria-label={`Chess board, ${COLOR_NAMES[color]} perspective`}
+    >
+      <div className="chess-board__grid">
+        {ranks.flatMap((rank, rankIndex) =>
+          files.map((file, fileIndex) => {
+            const square = `${file}${rank}` as Square;
+            const piece = chess.get(square);
+            const isLightSquare = (fileIndex + rankIndex) % 2 === 0;
+            const isSelected = selectedSquare === square;
+            const isLegalDestination = legalDestinations.has(square);
+            const isPreviousMove =
+              previousMove?.from === square || previousMove?.to === square;
+            const squareColor = isLightSquare ? "light" : "dark";
+            const pieceDescription = piece
+              ? `${COLOR_NAMES[piece.color]} ${PIECE_NAMES[piece.type]}`
+              : "empty";
+            const isCheckedKing = square === checkedKing;
+            const label = `${squareColor} square ${square}, ${pieceDescription}${
+              isCheckedKing ? ", in check" : ""
+            }${
+              isSelected
+                ? ", selected"
+                : isLegalDestination
+                  ? ", legal move destination"
+                  : ""
+            }`;
 
-      <div className="relative flex text-right white -top-6 right-1 text-black-200 ">
-        {cols.split("").map((col, i) => {
-          const classNames =
-            "text-lg " + (i % 2 == 0 ? "text-board-white" : "text-board-black");
-          return (
-            <div className="w-20" key={col}>
-              <div className={classNames}>{col}</div>
-            </div>
-          );
-        })}
+            return (
+              <button
+                key={square}
+                type="button"
+                className={[
+                  "chess-board__square",
+                  isLightSquare
+                    ? "chess-board__square--light"
+                    : "chess-board__square--dark",
+                  isSelected ? "chess-board__square--selected" : "",
+                  isLegalDestination
+                    ? "chess-board__square--legal"
+                    : "",
+                  isLegalDestination && piece
+                    ? "chess-board__square--capture"
+                    : "",
+                  isPreviousMove ? "chess-board__square--previous" : "",
+                  isCheckedKing ? "chess-board__square--check" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-label={label}
+                aria-pressed={isSelected}
+                disabled={!interactive}
+                onClick={() => handleSquareClick(square)}
+              >
+                {fileIndex === 0 && (
+                  <span
+                    aria-hidden="true"
+                    className="chess-board__coordinate chess-board__coordinate--rank"
+                  >
+                    {rank}
+                  </span>
+                )}
+                {rankIndex === ranks.length - 1 && (
+                  <span
+                    aria-hidden="true"
+                    className="chess-board__coordinate chess-board__coordinate--file"
+                  >
+                    {file}
+                  </span>
+                )}
+                {piece && (
+                  <img
+                    className="chess-board__piece"
+                    src={`/${piece.type}${piece.color === "w" ? "_w" : ""}.png`}
+                    alt=""
+                  />
+                )}
+              </button>
+            );
+          })
+        )}
       </div>
-    </div>
+    </section>
   );
 };
 

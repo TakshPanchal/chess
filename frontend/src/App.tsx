@@ -1,16 +1,16 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import LandingPage from "./screens/Landing";
 import PlayPage from "./screens/Play";
 
+const router = createBrowserRouter([
+  { path: "/", element: <LandingPage /> },
+  { path: "/play", element: <PlayPage /> },
+]);
+
 function App() {
   return (
-    <div className="h-screen bg-slate-800	">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/play" element={<PlayPage />} />
-        </Routes>
-      </BrowserRouter>
+    <div className="app-shell">
+      <RouterProvider router={router} />
     </div>
   );
 }

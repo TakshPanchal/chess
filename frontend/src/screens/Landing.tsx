@@ -1,26 +1,47 @@
 import { Link } from "react-router-dom";
-import Button from "../components/Button";
+import AppHeader from "../components/AppHeader";
 
-const LandingPage = () => {
-  return (
-    <div>
-      <div className="grid max-w-screen-lg grid-cols-1 gap-4 pt-8 mx-auto md:grid-cols-2">
-        <div className="flex justify-center">
-          <img src="/chess.png" alt="chess" className="max-w-100" />
-        </div>
-        <div className="pt-16 text-white">
-          <h1 className="font-mono text-6xl text-center">
-            Play Chess Online on the #0 chess site!
-          </h1>
-          <div className="flex justify-center mt-10">
-            <Link to="/play">
-              <Button onClick={() => {}}>Play Online</Button>
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+const LandingPage = () => (
+  <div className="page">
+    <AppHeader />
+    <main className="welcome">
+      <section className="welcome-intro" aria-labelledby="welcome-title">
+        <h1 id="welcome-title" className="welcome-title">Play chess online</h1>
+        <p className="welcome-lead">Get matched with the next available player. No account required.</p>
+        <Link className="button button--primary button--large" to="/play" state={{ findOpponent: true }}>
+          Find an opponent
+        </Link>
+        <p className="welcome-meta">Untimed games · Colors assigned at random</p>
+      </section>
+      <section className="welcome-guide" aria-labelledby="guide-title">
+        <h2 id="guide-title" className="guide-title">How to play</h2>
+        <ol className="guide-steps">
+          <li>
+            <span className="guide-number" aria-hidden="true">1</span>
+            <span>
+              <strong>Find an opponent.</strong>
+              You'll be paired with the next player who is searching.
+            </span>
+          </li>
+          <li>
+            <span className="guide-number" aria-hidden="true">2</span>
+            <span>
+              <strong>Select one of your pieces.</strong>
+              Its legal moves are marked on the board.
+            </span>
+          </li>
+          <li>
+            <span className="guide-number" aria-hidden="true">3</span>
+            <span>
+              <strong>Select a marked square to move.</strong>
+              Pawns that reach the last rank become queens.
+            </span>
+          </li>
+        </ol>
+        <p className="guide-note">A game ends if either player leaves or loses their connection.</p>
+      </section>
+    </main>
+  </div>
+);
 
 export default LandingPage;
