@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/takshpanchal/chess/src/game"
 	"github.com/takshpanchal/chess/src/ws"
@@ -27,12 +28,17 @@ func main() {
 		ws.HandleWS(w, r, gm)
 	})
 
-	srv := &http.Server{
-		Handler: mux,
-		Addr:    ":8080",
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
 	}
 
-	log.Println("Starting the server on port 8080")
+	srv := &http.Server{
+		Handler: mux,
+		Addr:    ":" + port,
+	}
+
+	log.Printf("Starting the server on port %s", port)
 	err := srv.ListenAndServe()
 	if err != nil {
 		log.Panicf("Error: %v", err)

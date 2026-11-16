@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: chess-server
+    runtime: go
+    plan: free
+    buildCommand: go build -o chess-server ./src/main
+    startCommand: ./chess-server
+    healthCheckPath: /health
+
+  - type: web
+    name: chess-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_WS_HOST
+        fromService:
+          type: web
+          name: chess-server
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
