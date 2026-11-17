@@ -42,6 +42,16 @@ The frontend connects to `ws://localhost:8080/ws` by default. For a deployed bac
 
 The server keeps matchmaking and games in memory; restarting it loses active state. There is no database, Redis, or Docker Compose setup in this repository.
 
+## CI and deployment protection
+
+GitHub Actions runs Go tests and frontend lint and build checks for pull requests and pushes to `main`. To gate production deployments on those checks:
+
+1. Push the workflow and open a pull request so the `Go tests` and `Frontend lint and build` checks appear in GitHub.
+2. In GitHub branch protection for `main`, require a pull request and both checks before merging. Apply the rule to administrators and block bypasses and direct pushes.
+3. In Render, set the branch for both `chess-server` and `chess-frontend` to `main` and keep automatic deploys enabled. Verify both services deploy from `main`.
+
+Until these settings are applied, passing CI does not prevent an unchecked deployment. Branch protection does not gate manual Render deploys or changes to Render settings.
+
 ## Deploy on Render
 
 The included `render.yaml` defines a free Go web service and a static site. Push the repository to GitHub, then create a [Render Blueprint](https://dashboard.render.com/blueprints) from the repository and select the branch containing `render.yaml`. The Blueprint connects the frontend to the server automatically.
